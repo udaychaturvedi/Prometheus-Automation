@@ -1,7 +1,9 @@
-- hosts: all
+- name: Install Prometheus on EC2
+  hosts: all
   become: yes
+
   tasks:
-    - name: Update packages
+    - name: Update apt packages
       apt:
         update_cache: yes
 
@@ -12,7 +14,7 @@
           - tar
         state: present
 
-    - name: Download Prometheus
+    - name: Download Prometheus package
       get_url:
         url: https://github.com/prometheus/prometheus/releases/download/v2.53.1/prometheus-2.53.1.linux-amd64.tar.gz
         dest: /tmp/prometheus.tar.gz
@@ -34,7 +36,7 @@
         dest: /etc/systemd/system/prometheus.service
         content: |
           [Unit]
-          Description=Prometheus
+          Description=Prometheus Service
           After=network.target
 
           [Service]
@@ -44,9 +46,9 @@
           [Install]
           WantedBy=multi-user.target
 
-    - name: Start Prometheus service
+    - name: Start and enable Prometheus
       systemd:
         name: prometheus
-        state: started
         enabled: yes
+        state: started
 
