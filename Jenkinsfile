@@ -1,34 +1,65 @@
 pipeline {
     agent any
-    environment {
-        AWS_ACCESS_KEY_ID     = credentials('aws-creds')
-        AWS_SECRET_ACCESS_KEY = credentials('aws-creds')
-    }
     stages {
+        stage('Clean Workspace') {
+            steps {
+                deleteDir()
+            }
+        }
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
         stage('Terraform Init') {
             steps {
-                echo "Initializing Terraform..."
-                dir('terraform') {
-                    sh 'terraform init -reconfigure'
+                withCredentials([usernamePassword(credentialsId: 'aws-creds', 
+                                  usernameVariable: 'AWS_ACCESS_KEY_ID', 
+                                  passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    dir('terraform') {
+                        sh 'terraform init -reconfigure'
+                    }
                 }
             }
         }
 
         stage('Terraform Plan') {
             steps {
-                echo "Planning Terraform changes..."
-                dir('terraform') {
-                    sh 'terraform plan'
+                withCredentials([usernamePassword(credentialsId: 'aws-creds', 
+                                  usernameVariable: 'AWS_ACCESS_KEY_ID', 
+                                  passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    dir('terraform') {
+                        sh 'terraform plan'
+                    }
                 }
             }
         }
 
         stage('Terraform Apply') {
             steps {
-                echo "Applying Terraform changes..."
-                dir('terraform') {
-                    sh 'terraform apply -auto-approve'
+                withCredentials([usernamePassword(credentialsId: 'aws-creds', 
+                                  usernameVariable: 'AWS_ACCESS_KEY_ID', 
+                                  passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    dir('terraform') {
+                        sh 'terraform apply -auto-approve'
+                    }
                 }
+            }
+        }
+
+        stage('Ansible Deploy') {
+            steps {
+                dir('ansible') {
+                    sh 'ansible-playbook -i inventory_aws_ec2.yml prometheus_install.yml'
+                }
+            }
+        }
+
+        stage('Verify') {
+            steps {
+                echo "Prometheus deployment done! Visit http://<EC2_IP>:9090"
             }
         }
     }
