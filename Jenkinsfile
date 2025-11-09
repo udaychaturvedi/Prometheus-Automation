@@ -50,12 +50,22 @@ pipeline {
         }
 
         stage('Ansible Deploy') {
-            steps {
-                dir('ansible') {
-                    sh 'ansible-playbook -i inventory_aws_ec2.yml prometheus_install.yml'
-                }
+    steps {
+        dir('ansible') {
+            script {
+                // get EC2 IP from Terraform output
+                def prometheus_ip = sh(script: "terraform -chdir=../terraform output -raw prometheus_public_ip", returnStdout: true).trim()
+                
+                // add host key dynamically
+                sh "ssh-keyscan -H ${prometheus_ip} >> ~/.ssh/known_hosts"
+                
+                // run ansible with dynamic inventory variable
+                sh "ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i inventory_aws_ec2.yml prometheus_install.yml -e prometheus_ip=${prometheus_ip}"
             }
         }
+    }
+}
+
 
         stage('Verify') {
             steps {
@@ -64,3 +74,4 @@ pipeline {
         }
     }
 }
+
