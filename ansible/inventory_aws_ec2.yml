@@ -1,6 +1,6 @@
 all:
   hosts:
     prometheus_server:
-      ansible_host: "{{ prometheus_ip }}"   #
+      ansible_host: "{{ prometheus_ip }}"
       ansible_user: ubuntu
-      ansible_ssh_private_key_file: ~/new-uday-key.pem
+      ansible_ssh_private_key_file: "{{ lookup('env','SSH_KEY') }}"
