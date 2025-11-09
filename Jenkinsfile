@@ -52,26 +52,27 @@ pipeline {
         stage('Ansible Deploy') {
     steps {
         dir('ansible') {
-            withCredentials([usernamePassword(credentialsId: 'aws-creds',
-                              usernameVariable: 'AWS_ACCESS_KEY_ID',
-                              passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+            withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key',
+                                              keyFileVariable: 'SSH_KEY',
+                                              usernameVariable: 'SSH_USER')]) {
                 script {
-                    // get EC2 IP from Terraform output
+                    // Get EC2 public IP from Terraform output
                     def prometheus_ip = sh(
-                        script: "terraform -chdir=../terraform output -raw prometheus_public_ip", 
+                        script: "terraform -chdir=../terraform output -raw prometheus_public_ip",
                         returnStdout: true
                     ).trim()
 
-                    // add host key dynamically
+                    // Add EC2 host to known_hosts
                     sh "ssh-keyscan -H ${prometheus_ip} >> ~/.ssh/known_hosts"
 
-                    // run ansible with dynamic IP
-                    sh "ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i inventory_aws_ec2.yml prometheus_install.yml -e prometheus_ip=${prometheus_ip}"
+                    // Run Ansible dynamically with the SSH key and IP
+                    sh "ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i inventory_aws_ec2.yml prometheus_install.yml -e prometheus_ip=${prometheus_ip} --private-key=${SSH_KEY} -u ${SSH_USER}"
                 }
             }
         }
     }
 }
+
 
 
         stage('Verify') {
@@ -81,5 +82,6 @@ pipeline {
         }
     }
 }
+
 
 
