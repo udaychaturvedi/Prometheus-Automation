@@ -2,72 +2,72 @@ pipeline {
     agent any
 
     environment {
-        AWS_ACCESS_KEY_ID = credentials('aws-access-key')
-        AWS_SECRET_ACCESS_KEY = credentials('aws-secret-key')
-        AWS_DEFAULT_REGION = 'ap-south-1'
+        AWS_ACCESS_KEY_ID     = credentials('aws-creds')
+        AWS_SECRET_ACCESS_KEY = credentials('aws-creds-secret')
+        AWS_DEFAULT_REGION    = 'ap-south-1'
     }
 
     stages {
+
         stage('Clean Workspace') {
             steps {
-                echo "Cleaning workspace before start"
+                echo "Cleaning up workspace..."
                 deleteDir()
             }
         }
 
-        stage('Checkout') {
+        stage('Checkout Code') {
             steps {
-                echo "Getting code from GitHub"
-                git credentialsId: 'github-creds', url: 'https://github.com/udaychaturvedi/prometheus-automation.git'
+                echo "Getting latest code from GitHub..."
+                checkout([$class: 'GitSCM', 
+                    branches: [[name: '*/main']], 
+                    userRemoteConfigs: [[
+                        url: 'https://github.com/udaychaturvedi/prometheus-automation.git', 
+                        credentialsId: 'github-creds'
+                    ]]
+                ])
             }
         }
 
-        stage('Terraform Init & Apply') {
+        stage('Terraform Init') {
             steps {
+                echo "Initializing Terraform..."
                 dir('terraform') {
-                    echo "Init Terraform"
                     sh 'terraform init -reconfigure'
-                    
-                    echo "Apply Terraform"
+                }
+            }
+        }
+
+        stage('Terraform Plan') {
+            steps {
+                echo "Planning Terraform changes..."
+                dir('terraform') {
+                    sh 'terraform plan'
+                }
+            }
+        }
+
+        stage('Terraform Apply') {
+            steps {
+                echo "Applying Terraform changes..."
+                dir('terraform') {
                     sh 'terraform apply -auto-approve'
                 }
             }
         }
 
-        stage('Generate Dynamic Inventory') {
+        stage('Ansible Deploy') {
             steps {
+                echo "Deploying Prometheus using Ansible..."
                 dir('ansible') {
-                    script {
-                        // Get EC2 public IP from Terraform output
-                        def ip = sh(script: "terraform output -raw prometheus_public_ip", returnStdout: true).trim()
-
-                        // Create inventory file dynamically
-                        writeFile file: 'inventory_aws_ec2.yml', text: """
-all:
-  hosts:
-    prometheus_server:
-      ansible_host: ${ip}
-      ansible_user: ubuntu
-      ansible_ssh_private_key_file: /var/lib/jenkins/.ssh/new-uday-key.pem
-"""
-                        echo "Inventory created with dynamic IP: ${ip}"
-                    }
-                }
-            }
-        }
-
-        stage('Deploy Prometheus') {
-            steps {
-                dir('ansible') {
-                    echo "Running Ansible playbook"
-                    sh 'ansible-playbook -i inventory_aws_ec2.yml prometheus_install.yml --ssh-extra-args="-o StrictHostKeyChecking=no"'
+                    sh 'ansible-playbook -i inventory_aws_ec2.yml prometheus_install.yml'
                 }
             }
         }
 
         stage('Verify') {
             steps {
-                echo "Deployment done! Visit http://${terraform output -raw prometheus_public_ip}:9090"
+                echo "Check your Prometheus at http://<EC2_IP>:9090"
             }
         }
     }
