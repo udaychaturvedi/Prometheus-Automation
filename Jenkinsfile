@@ -54,7 +54,7 @@ pipeline {
         withCredentials([usernamePassword(credentialsId: 'aws-creds',
                                          usernameVariable: 'AWS_ACCESS_KEY_ID',
                                          passwordVariable: 'AWS_SECRET_ACCESS_KEY'),
-                         file(credentialsId: 'ssh-key', variable: 'SSH_KEY')]) {
+                         file(credentialsId: 'ec2-ssh-key', variable: 'SSH_KEY')]) {
             dir('ansible') {
                 script {
                     def prometheus_ip = sh(
@@ -78,6 +78,7 @@ pipeline {
         }
     }
 }
+
 
 
 
