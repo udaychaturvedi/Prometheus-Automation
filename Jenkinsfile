@@ -2,9 +2,7 @@ pipeline {
     agent any
 
     environment {
-        AWS_ACCESS_KEY_ID     = credentials('aws-creds')
-        AWS_SECRET_ACCESS_KEY = credentials('aws-creds')
-        AWS_DEFAULT_REGION    = 'ap-south-1'
+        AWS_DEFAULT_REGION = 'ap-south-1'
     }
 
     stages {
@@ -31,27 +29,39 @@ pipeline {
 
         stage('Terraform Init') {
             steps {
-                echo "Initializing Terraform..."
-                dir('terraform') {
-                    sh 'terraform init -reconfigure'
+                withCredentials([usernamePassword(credentialsId: 'aws-creds', 
+                                                  usernameVariable: 'AWS_ACCESS_KEY_ID', 
+                                                  passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    echo "Initializing Terraform..."
+                    dir('terraform') {
+                        sh 'terraform init -reconfigure'
+                    }
                 }
             }
         }
 
         stage('Terraform Plan') {
             steps {
-                echo "Planning Terraform changes..."
-                dir('terraform') {
-                    sh 'terraform plan'
+                withCredentials([usernamePassword(credentialsId: 'aws-creds', 
+                                                  usernameVariable: 'AWS_ACCESS_KEY_ID', 
+                                                  passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    echo "Planning Terraform changes..."
+                    dir('terraform') {
+                        sh 'terraform plan'
+                    }
                 }
             }
         }
 
         stage('Terraform Apply') {
             steps {
-                echo "Applying Terraform changes..."
-                dir('terraform') {
-                    sh 'terraform apply -auto-approve'
+                withCredentials([usernamePassword(credentialsId: 'aws-creds', 
+                                                  usernameVariable: 'AWS_ACCESS_KEY_ID', 
+                                                  passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    echo "Applying Terraform changes..."
+                    dir('terraform') {
+                        sh 'terraform apply -auto-approve'
+                    }
                 }
             }
         }
@@ -72,4 +82,3 @@ pipeline {
         }
     }
 }
-
