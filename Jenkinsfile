@@ -1,38 +1,23 @@
 pipeline {
     agent any
-
-    environment {
-        AWS_DEFAULT_REGION = 'ap-south-1'
-    }
-
     stages {
-
         stage('Clean Workspace') {
             steps {
-                echo "Cleaning up workspace..."
                 deleteDir()
             }
         }
 
-        stage('Checkout Code') {
+        stage('Checkout') {
             steps {
-                echo "Getting latest code from GitHub..."
-                checkout([$class: 'GitSCM', 
-                    branches: [[name: '*/main']], 
-                    userRemoteConfigs: [[
-                        url: 'https://github.com/udaychaturvedi/prometheus-automation.git', 
-                        credentialsId: 'github-creds'
-                    ]]
-                ])
+                checkout scm
             }
         }
 
         stage('Terraform Init') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'aws-creds', 
-                                                  usernameVariable: 'AWS_ACCESS_KEY_ID', 
-                                                  passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    echo "Initializing Terraform..."
+                                  usernameVariable: 'AWS_ACCESS_KEY_ID', 
+                                  passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     dir('terraform') {
                         sh 'terraform init -reconfigure'
                     }
@@ -43,9 +28,8 @@ pipeline {
         stage('Terraform Plan') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'aws-creds', 
-                                                  usernameVariable: 'AWS_ACCESS_KEY_ID', 
-                                                  passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    echo "Planning Terraform changes..."
+                                  usernameVariable: 'AWS_ACCESS_KEY_ID', 
+                                  passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     dir('terraform') {
                         sh 'terraform plan'
                     }
@@ -56,9 +40,8 @@ pipeline {
         stage('Terraform Apply') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'aws-creds', 
-                                                  usernameVariable: 'AWS_ACCESS_KEY_ID', 
-                                                  passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    echo "Applying Terraform changes..."
+                                  usernameVariable: 'AWS_ACCESS_KEY_ID', 
+                                  passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     dir('terraform') {
                         sh 'terraform apply -auto-approve'
                     }
@@ -68,7 +51,6 @@ pipeline {
 
         stage('Ansible Deploy') {
             steps {
-                echo "Deploying Prometheus using Ansible..."
                 dir('ansible') {
                     sh 'ansible-playbook -i inventory_aws_ec2.yml prometheus_install.yml'
                 }
@@ -77,7 +59,7 @@ pipeline {
 
         stage('Verify') {
             steps {
-                echo "Check your Prometheus at http://<EC2_IP>:9090"
+                echo "Prometheus deployment done! Visit http://<EC2_IP>:9090"
             }
         }
     }
