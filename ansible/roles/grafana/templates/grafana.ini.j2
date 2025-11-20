@@ -1,0 +1,36 @@
+####################################
+# GRAFANA CONFIG (SMTP ENABLED)
+####################################
+
+[server]
+http_port = 3000
+
+[security]
+admin_user = admin
+admin_password = admin
+
+####################################
+# EMAIL SMTP CONFIG FOR GMAIL
+####################################
+[smtp]
+enabled = true
+host = smtp.gmail.com:587
+user = "udaysharma5445@gmaill.com"
+password = "ahgc zznb qtvc ogtj"
+skip_verify = true
+from_address = "udaysharma5445@gmaill.com"
+from_name = "Grafana Alerts"
+
+[alerting]
+enabled = true
+execute_alerts = true
+
+[unified_alerting]
+enabled = true
+
+####################################
+# DASHBOARD PROVISIONING
+####################################
+[paths]
+provisioning = /etc/grafana/provisioning
+

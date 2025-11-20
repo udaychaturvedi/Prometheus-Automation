@@ -98,6 +98,12 @@
     src: prometheus_overview.json
     dest: /var/lib/grafana/dashboards/prometheus_overview.json
 
+- name: Apply Grafana configuration
+  template:
+    src: grafana.ini.j2
+    dest: /etc/grafana/grafana.ini
+  notify: Restart Grafana
+
 # ===============================
 # Restart Grafana
 # ===============================
