@@ -5,27 +5,33 @@ pipeline {
     parameters {
         choice(
             name: 'BUILD_TYPE',
-            choices: ['plan', 'apply', 'destroy', 'ansible-deploy', 'verify'],
-            description: 'Select the type of build to run'
+            choices: ['plan', 'apply', 'destroy', 'ansible-deploy'],
+            description: 'Choose what you want Jenkins to do'
         )
     }
 
     stages {
 
         stage('Clean Workspace') {
-            steps { deleteDir() }
+            steps {
+                deleteDir()
+            }
         }
 
-        stage('Checkout') {
-            steps { checkout scm }
+        stage('Checkout Code') {
+            steps {
+                git branch: 'main', url: 'https://github.com/udaychaturvedi/Prometheus-Automation.git'
+            }
         }
 
         stage('Terraform Init') {
-            when { anyOf { 
-                environment name: 'BUILD_TYPE', value: 'plan'
-                environment name: 'BUILD_TYPE', value: 'apply'
-                environment name: 'BUILD_TYPE', value: 'destroy'
-            }}
+            when {
+                anyOf {
+                    environment name: 'BUILD_TYPE', value: 'plan'
+                    environment name: 'BUILD_TYPE', value: 'apply'
+                    environment name: 'BUILD_TYPE', value: 'destroy'
+                }
+            }
             steps {
                 dir('terraform') {
                     sh 'terraform init -reconfigure'
@@ -33,8 +39,11 @@ pipeline {
             }
         }
 
+        /* -------------------- TERRAFORM PLAN -------------------- */
         stage('Terraform Plan') {
-            when { environment name: 'BUILD_TYPE', value: 'plan' }
+            when {
+                environment name: 'BUILD_TYPE', value: 'plan'
+            }
             steps {
                 dir('terraform') {
                     sh 'terraform plan'
@@ -42,15 +51,20 @@ pipeline {
             }
         }
 
-        stage('Approve Apply') {
-            when { environment name: 'BUILD_TYPE', value: 'apply' }
+        /* -------------------- TERRAFORM APPLY -------------------- */
+        stage('User Approval (Apply)') {
+            when {
+                environment name: 'BUILD_TYPE', value: 'apply'
+            }
             steps {
-                input message: "Are you sure you want to APPLY?"
+                input message: "Are you sure you want to APPLY infrastructure?"
             }
         }
 
         stage('Terraform Apply') {
-            when { environment name: 'BUILD_TYPE', value: 'apply' }
+            when {
+                environment name: 'BUILD_TYPE', value: 'apply'
+            }
             steps {
                 dir('terraform') {
                     sh 'terraform apply -auto-approve'
@@ -58,15 +72,20 @@ pipeline {
             }
         }
 
-        stage('Approve Destroy') {
-            when { environment name: 'BUILD_TYPE', value: 'destroy' }
+        /* -------------------- TERRAFORM DESTROY -------------------- */
+        stage('User Approval (Destroy)') {
+            when {
+                environment name: 'BUILD_TYPE', value: 'destroy'
+            }
             steps {
-                input message: "Destroy all infrastructure?"
+                input message: "Are you sure you want to DESTROY infrastructure?"
             }
         }
 
         stage('Terraform Destroy') {
-            when { environment name: 'BUILD_TYPE', value: 'destroy' }
+            when {
+                environment name: 'BUILD_TYPE', value: 'destroy'
+            }
             steps {
                 dir('terraform') {
                     sh 'terraform destroy -auto-approve'
@@ -74,8 +93,12 @@ pipeline {
             }
         }
 
-        stage('Ansible Deploy') {
-            when { environment name: 'BUILD_TYPE', value: 'ansible-deploy' }
+        /* -------------------- ANSIBLE DEPLOY -------------------- */
+        stage('Run Ansible Deployment') {
+            when {
+                environment name: 'BUILD_TYPE', value: 'ansible-deploy'
+            }
+
             steps {
 
                 withCredentials([
@@ -83,40 +106,35 @@ pipeline {
                 ]) {
 
                     script {
-                        // Fetch PRIVATE IP from Terraform
-                        def prom_ip = sh(
+                        echo "Fetching instance private IP..."
+                        def private_ip = sh(
                             script: "terraform -chdir=terraform output -raw prometheus_private_ip",
                             returnStdout: true
                         ).trim()
 
-                        // Run Ansible roles
+                        echo "Running Ansible on: ${private_ip}"
+
                         dir('ansible') {
                             sh """
                                 ANSIBLE_HOST_KEY_CHECKING=False \
-                                ansible-playbook -i inventory.yml site.yml \
-                                --private-key \$SSH_KEY \
-                                -e prometheus_ip=${prom_ip}
+                                ansible-playbook \
+                                    -i inventory_aws_ec2.yml \
+                                    site.yml \
+                                    --private-key \$SSH_KEY
                             """
                         }
                     }
                 }
             }
         }
-
-        stage('Verify Prometheus') {
-            when { environment name: 'BUILD_TYPE', value: 'verify' }
-            steps {
-                script {
-                    sh 'curl -k https://prometheus.private.local:9090/-/ready || true'
-                }
-            }
-        }
     }
 
     post {
-        always {
-            echo "Pipeline Completed: ${currentBuild.currentResult}"
+        success {
+            echo "Pipeline executed successfully!"
+        }
+        failure {
+            echo "Pipeline failed! Please check logs."
         }
     }
 }
-
