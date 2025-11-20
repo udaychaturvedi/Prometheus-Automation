@@ -28,7 +28,7 @@ pipeline {
         stage('Choose Action') {
             steps {
                 script {
-                    ACTION = input(
+                    def ACTION = input(
                         message: "What do you want to do?",
                         parameters: [choice(
                             name: 'ACTION',
@@ -36,13 +36,15 @@ pipeline {
                             description: 'Select action'
                         )]
                     )
-                    echo "User selected: ${ACTION}"
+                    // store in env for later stages
+                    env.ACTION = ACTION
+                    echo "User selected: ${env.ACTION}"
                 }
             }
         }
 
         stage('Terraform Apply') {
-            when { expression { ACTION == 'apply' } }
+            when { expression { env.ACTION == 'apply' } }
             steps {
                 dir('terraform') {
                     sh 'terraform apply -auto-approve'
@@ -51,7 +53,7 @@ pipeline {
         }
 
         stage('Terraform Destroy') {
-            when { expression { ACTION == 'destroy' } }
+            when { expression { env.ACTION == 'destroy' } }
             steps {
                 dir('terraform') {
                     sh 'terraform destroy -auto-approve'
@@ -60,7 +62,7 @@ pipeline {
         }
 
         stage('Wait for EC2 to be Ready') {
-            when { expression { ACTION == 'apply' } }
+            when { expression { env.ACTION == 'apply' } }
             steps {
                 script {
                     echo "⏳ Waiting 45 seconds for EC2 boot & SSH readiness..."
@@ -70,32 +72,30 @@ pipeline {
         }
 
         stage('Get Public IP') {
-            when { expression { ACTION == 'apply' } }
+            when { expression { env.ACTION == 'apply' } }
             steps {
                 script {
-                    PUBLIC_IP = sh(
+                    def PUBLIC_IP = sh(
                         script: 'terraform -chdir=terraform output -raw prometheus_public_ip',
                         returnStdout: true
                     ).trim()
-
-                    echo "Prometheus Public IP = ${PUBLIC_IP}"
+                    env.PROM_PUBLIC_IP = PUBLIC_IP
+                    echo "Prometheus Public IP = ${env.PROM_PUBLIC_IP}"
                 }
             }
         }
 
         stage('Run Ansible Deployment') {
-            when { expression { ACTION == 'apply' } }
+            when { expression { env.ACTION == 'apply' } }
             steps {
-                withCredentials([sshUserPrivateKey(
-                    credentialsId: 'ec2-ssh-key-file',   // ✅ FIXED!
-                    keyFileVariable: 'SSH_KEY'
-                )]) {
+                // use secret-file credential (type: Secret file) which exposes a filepath
+                withCredentials([file(credentialsId: 'ec2-ssh-key-file', variable: 'SSH_KEY')]) {
                     dir('ansible') {
                         sh '''
-                        export SSH_KEY=$SSH_KEY
-                        ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook \
-                        -i inventory_aws_ec2.yml site.yml \
-                        --private-key $SSH_KEY
+                        set -e
+                        chmod 600 "$SSH_KEY"
+                        export ANSIBLE_HOST_KEY_CHECKING=False
+                        ansible-playbook -i inventory_aws_ec2.yml site.yml --private-key "$SSH_KEY"
                         '''
                     }
                 }
@@ -103,13 +103,13 @@ pipeline {
         }
 
         stage('Show URLs') {
-            when { expression { ACTION == 'apply' } }
+            when { expression { env.ACTION == 'apply' } }
             steps {
                 script {
                     echo "=============================================="
-                    echo "Prometheus   : http://${PUBLIC_IP}:9090"
-                    echo "Alertmanager : http://${PUBLIC_IP}:9093"
-                    echo "Grafana      : http://${PUBLIC_IP}:3000"
+                    echo "Prometheus   : http://${env.PROM_PUBLIC_IP}:9090"
+                    echo "Alertmanager : http://${env.PROM_PUBLIC_IP}:9093"
+                    echo "Grafana      : http://${env.PROM_PUBLIC_IP}:3000"
                     echo "=============================================="
                 }
             }
