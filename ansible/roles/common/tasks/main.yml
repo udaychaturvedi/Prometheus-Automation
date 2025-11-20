@@ -19,21 +19,39 @@
       - ufw
     state: present
 
-# Firewall rules (optional for production)
-- name: Allow SSH
+# Firewall rules (fully open required ports BEFORE enabling ufw)
+- name: Allow SSH (22)
   ufw:
     rule: allow
     port: 22
     proto: tcp
 
-- name: Allow Prometheus port
+- name: Allow Prometheus (9090)
   ufw:
     rule: allow
     port: 9090
     proto: tcp
 
+- name: Allow Alertmanager (9093)
+  ufw:
+    rule: allow
+    port: 9093
+    proto: tcp
+
+- name: Allow Grafana (3000)
+  ufw:
+    rule: allow
+    port: 3000
+    proto: tcp
+
+- name: Allow Node Exporter (9100)
+  ufw:
+    rule: allow
+    port: 9100
+    proto: tcp
+
+# Enable UFW AFTER adding all rules
 - name: Enable UFW
   ufw:
     state: enabled
-    policy: allow
 
