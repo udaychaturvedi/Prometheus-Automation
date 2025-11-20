@@ -2,127 +2,117 @@ pipeline {
 
     agent any
 
+    environment {
+        SSH_KEY_ID = 'ec2-ssh-key-file'   // Jenkins Credential (SSH private key)
+    }
+
     stages {
 
+        /* --- CLEAN WORKSPACE FIRST --- */
         stage('Clean Workspace') {
             steps {
                 deleteDir()
             }
         }
 
+        /* --- CHECKOUT YOUR GITHUB CODE --- */
         stage('Checkout Code') {
             steps {
                 git branch: 'main', url: 'https://github.com/udaychaturvedi/Prometheus-Automation.git'
             }
         }
 
-        stage('Terraform Init & Validate') {
+        /* --- TERRAFORM INIT --- */
+        stage('Terraform Init') {
             steps {
                 dir('terraform') {
                     sh 'terraform init -reconfigure'
-                    sh 'terraform validate'
                 }
             }
         }
 
-        stage('User Decision: Apply or Destroy') {
+        /* --- ASK USER: APPLY OR DESTROY --- */
+        stage('Choose Action') {
             steps {
                 script {
-                    def choice = input(
-                        id: "ACTION_CHOICE",
-                        message: "Choose what you want to do:",
+                    ACTION = input(
+                        message: "Choose Terraform Action",
                         parameters: [
                             choice(
-                                name: 'ACTION',
+                                name: 'action',
                                 choices: ['apply', 'destroy'],
                                 description: 'Select apply or destroy'
                             )
                         ]
                     )
-                    env.ACTION = choice
-                    echo "User selected: ${env.ACTION}"
+                    echo "User selected: ${ACTION}"
                 }
             }
         }
 
-        stage('Terraform Apply or Destroy') {
+        /* --- TERRAFORM APPLY --- */
+        stage('Terraform Apply') {
+            when { expression { ACTION == 'apply' } }
             steps {
-                script {
-                    if (env.ACTION == "apply") {
-                        dir('terraform') {
-                            sh "terraform apply -auto-approve"
-                        }
-                    } else {
-                        dir('terraform') {
-                            sh "terraform destroy -auto-approve"
-                        }
-                        echo "Infrastructure destroyed. Pipeline ending."
-                        currentBuild.result = 'SUCCESS'
-                        return
-                    }
+                dir('terraform') {
+                    sh 'terraform apply -auto-approve'
                 }
             }
         }
 
-        stage('Fetch Public IP (Only for Apply)') {
-            when {
-                expression { env.ACTION == "apply" }
+        /* --- TERRAFORM DESTROY --- */
+        stage('Terraform Destroy') {
+            when { expression { ACTION == 'destroy' } }
+            steps {
+                dir('terraform') {
+                    sh 'terraform destroy -auto-approve'
+                }
             }
+        }
+
+        /* --- FETCH PUBLIC IP --- */
+        stage('Get Public IP') {
+            when { expression { ACTION == 'apply' } }
             steps {
                 script {
-                    env.PROM_IP = sh(
+                    PUBLIC_IP = sh(
                         script: "terraform -chdir=terraform output -raw prometheus_public_ip",
                         returnStdout: true
                     ).trim()
 
-                    echo "Prometheus Public IP: ${env.PROM_IP}"
+                    echo "Prometheus Public IP = ${PUBLIC_IP}"
                 }
             }
         }
 
-        stage('Run Ansible (Only for Apply)') {
-            when {
-                expression { env.ACTION == "apply" }
-            }
+        /* --- RUN ANSIBLE FULL DEPLOYMENT --- */
+        stage('Run Ansible Deployment') {
+            when { expression { ACTION == 'apply' } }
 
             steps {
                 withCredentials([
-                    file(credentialsId: 'ec2-ssh-key-file', variable: 'SSH_KEY')
+                    file(credentialsId: SSH_KEY_ID, variable: 'SSH_KEY')
                 ]) {
-
                     dir('ansible') {
                         sh """
                             ANSIBLE_HOST_KEY_CHECKING=False \
-                            ansible-playbook -i inventory_aws_ec2.yml site.yml \
+                            ansible-playbook \
+                            -i inventory_aws_ec2.yml \
+                            site.yml \
                             --private-key \$SSH_KEY
                         """
                     }
                 }
             }
         }
-
-        stage('Final Output (Only for Apply)') {
-            when {
-                expression { env.ACTION == "apply" }
-            }
-            steps {
-                echo "======================================="
-                echo "      Deployment Completed Successfully"
-                echo "======================================="
-                echo "Prometheus: http://${env.PROM_IP}:9090"
-                echo "Grafana:    http://${env.PROM_IP}:3000"
-                echo "AlertManager: http://${env.PROM_IP}:9093"
-                echo "======================================="
-            }
-        }
     }
 
     post {
         success {
-            echo "Pipeline executed successfully!"
+            echo "Pipeline Completed Successfully!"
         }
         failure {
-            echo "Pipeline failed!"
+            echo "Pipeline Failed — Check Logs!"
         }
     }
 }
