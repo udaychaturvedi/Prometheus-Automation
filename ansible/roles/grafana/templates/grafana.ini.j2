@@ -4,6 +4,7 @@
 
 [server]
 http_port = 3000
+http_addr = 0.0.0.0
 
 [security]
 admin_user = admin
@@ -21,12 +22,9 @@ skip_verify = true
 from_address = "udaysharma5445@gmaill.com"
 from_name = "Grafana Alerts"
 
-[alerting]
-enabled = true
-execute_alerts = true
-
 [unified_alerting]
 enabled = true
+alertmanager_instance_name = default
 
 ####################################
 # DASHBOARD PROVISIONING
