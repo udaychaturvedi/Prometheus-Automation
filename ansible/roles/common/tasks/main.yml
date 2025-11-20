@@ -19,7 +19,12 @@
       - ufw
     state: present
 
-# Firewall rules (fully open required ports BEFORE enabling ufw)
+# Firewall rules
+
+- name: Reset UFW
+  ufw:
+    state: reset
+      
 - name: Allow SSH (22)
   ufw:
     rule: allow
