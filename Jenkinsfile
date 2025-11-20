@@ -30,7 +30,11 @@ pipeline {
                 script {
                     ACTION = input(
                         message: "What do you want to do?",
-                        parameters: [choice(name: 'ACTION', choices: ['apply', 'destroy'], description: 'Select action')]
+                        parameters: [choice(
+                            name: 'ACTION',
+                            choices: ['apply', 'destroy'],
+                            description: 'Select action'
+                        )]
                     )
                     echo "User selected: ${ACTION}"
                 }
@@ -82,7 +86,10 @@ pipeline {
         stage('Run Ansible Deployment') {
             when { expression { ACTION == 'apply' } }
             steps {
-                withCredentials([sshUserPrivateKey(credentialsId: 'github-creds', keyFileVariable: 'SSH_KEY')]) {
+                withCredentials([sshUserPrivateKey(
+                    credentialsId: 'ec2-ssh-key-file',   // ✅ FIXED!
+                    keyFileVariable: 'SSH_KEY'
+                )]) {
                     dir('ansible') {
                         sh '''
                         export SSH_KEY=$SSH_KEY
