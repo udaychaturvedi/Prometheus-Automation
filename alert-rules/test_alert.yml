@@ -1,0 +1,12 @@
+groups:
+  - name: test-alert-group
+    rules:
+      - alert: Test_Alert_Firing
+        expr: vector(1)
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Test alert from Prometheus"
+          description: "This is a test alert to verify Gmail SMTP alerting."
+
