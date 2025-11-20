@@ -2,27 +2,20 @@ pipeline {
 
     agent any
 
-    environment {
-        SSH_KEY_ID = 'ec2-ssh-key-file'   // Jenkins Credential (SSH private key)
-    }
-
     stages {
 
-        /* --- CLEAN WORKSPACE FIRST --- */
         stage('Clean Workspace') {
             steps {
                 deleteDir()
             }
         }
 
-        /* --- CHECKOUT YOUR GITHUB CODE --- */
         stage('Checkout Code') {
             steps {
                 git branch: 'main', url: 'https://github.com/udaychaturvedi/Prometheus-Automation.git'
             }
         }
 
-        /* --- TERRAFORM INIT --- */
         stage('Terraform Init') {
             steps {
                 dir('terraform') {
@@ -31,18 +24,14 @@ pipeline {
             }
         }
 
-        /* --- ASK USER: APPLY OR DESTROY --- */
         stage('Choose Action') {
             steps {
                 script {
                     ACTION = input(
+                        id: "userInput",
                         message: "Choose Terraform Action",
                         parameters: [
-                            choice(
-                                name: 'action',
-                                choices: ['apply', 'destroy'],
-                                description: 'Select apply or destroy'
-                            )
+                            choice(name: 'Action', choices: ['apply', 'destroy'])
                         ]
                     )
                     echo "User selected: ${ACTION}"
@@ -50,9 +39,8 @@ pipeline {
             }
         }
 
-        /* --- TERRAFORM APPLY --- */
         stage('Terraform Apply') {
-            when { expression { ACTION == 'apply' } }
+            when { expression { ACTION == "apply" } }
             steps {
                 dir('terraform') {
                     sh 'terraform apply -auto-approve'
@@ -60,9 +48,8 @@ pipeline {
             }
         }
 
-        /* --- TERRAFORM DESTROY --- */
         stage('Terraform Destroy') {
-            when { expression { ACTION == 'destroy' } }
+            when { expression { ACTION == "destroy" } }
             steps {
                 dir('terraform') {
                     sh 'terraform destroy -auto-approve'
@@ -70,9 +57,8 @@ pipeline {
             }
         }
 
-        /* --- FETCH PUBLIC IP --- */
         stage('Get Public IP') {
-            when { expression { ACTION == 'apply' } }
+            when { expression { ACTION == "apply" } }
             steps {
                 script {
                     PUBLIC_IP = sh(
@@ -85,21 +71,16 @@ pipeline {
             }
         }
 
-        /* --- RUN ANSIBLE FULL DEPLOYMENT --- */
         stage('Run Ansible Deployment') {
-            when { expression { ACTION == 'apply' } }
+            when { expression { ACTION == "apply" } }
 
             steps {
-                withCredentials([
-                    file(credentialsId: SSH_KEY_ID, variable: 'SSH_KEY')
-                ]) {
+                withCredentials([file(credentialsId: 'ec2-ssh-key-file', variable: 'SSH_KEY')]) {
+
                     dir('ansible') {
                         sh """
                             ANSIBLE_HOST_KEY_CHECKING=False \
-                            ansible-playbook \
-                            -i inventory_aws_ec2.yml \
-                            site.yml \
-                            --private-key \$SSH_KEY
+                            ansible-playbook -i inventory_aws_ec2.yml site.yml --private-key \$SSH_KEY
                         """
                     }
                 }
@@ -109,10 +90,22 @@ pipeline {
 
     post {
         success {
-            echo "Pipeline Completed Successfully!"
+            script {
+                if (ACTION == "apply") {
+                    echo "=============================================="
+                    echo " PROMETHEUS, ALERTMANAGER & GRAFANA LINKS"
+                    echo "=============================================="
+                    echo "Prometheus   : http://${PUBLIC_IP}:9090"
+                    echo "Alertmanager : http://${PUBLIC_IP}:9093"
+                    echo "Grafana      : http://${PUBLIC_IP}:3000"
+                    echo "=============================================="
+                } else {
+                    echo "Infrastructure Destroyed Successfully!"
+                }
+            }
         }
         failure {
-            echo "Pipeline Failed — Check Logs!"
+            echo "Pipeline failed! Check logs."
         }
     }
 }
