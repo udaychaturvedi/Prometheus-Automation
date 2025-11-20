@@ -78,7 +78,7 @@ pipeline {
         stage('Run Ansible Deployment') {
             when { expression { ACTION == 'apply' } }
             steps {
-                withCredentials([sshUserPrivateKey(credentialsId: 'github-key', keyFileVariable: 'SSH_KEY')]) {
+                withCredentials([sshUserPrivateKey(credentialsId: 'github-creds', keyFileVariable: 'SSH_KEY')]) {
                     dir('ansible') {
                         sh '''
                         export SSH_KEY=$SSH_KEY
@@ -114,3 +114,4 @@ pipeline {
         }
     }
 }
+
