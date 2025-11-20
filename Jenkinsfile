@@ -9,7 +9,11 @@ pipeline {
 
         stage('Checkout Code') {
             steps {
-                git url: 'https://github.com/udaychaturvedi/Prometheus-Automation.git', branch: 'main'
+                git(
+                    url: 'https://github.com/udaychaturvedi/Prometheus-Automation.git',
+                    branch: 'main',
+                    credentialsId: 'github-creds'
+                )
             }
         }
 
@@ -114,4 +118,3 @@ pipeline {
         }
     }
 }
-
