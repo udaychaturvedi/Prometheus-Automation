@@ -1,4 +1,5 @@
-Prometheus automation
-- terraform/: Terraform code to provision EC2, security group, IAM role
-- ansible/: Ansible playbook + dynamic inventory to install Prometheus
-- Jenkinsfile: Pipeline to run Terraform then Ansible
+Prometheus Production-Ready Monitoring Setup
+- TLS & Basic Auth for Prometheus & Alertmanager
+- Alertmanager routing + grouping
+- EC2 monitoring with Node Exporter
+- Terraform modules

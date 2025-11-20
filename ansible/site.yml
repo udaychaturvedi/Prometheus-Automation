@@ -1,0 +1,12 @@
+---
+- name: Deploy Prometheus stack
+  hosts: prometheus_group
+  become: yes
+
+  roles:
+    - common
+    - node_exporter
+    - prometheus
+    - alertmanager
+    - grafana
+

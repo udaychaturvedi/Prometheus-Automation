@@ -1,0 +1,108 @@
+---
+# ===============================
+# Install Grafana Repository
+# ===============================
+- name: Add Grafana GPG key
+  apt_key:
+    url: https://packages.grafana.com/gpg.key
+    state: present
+
+- name: Add Grafana APT repo
+  apt_repository:
+    repo: "deb https://packages.grafana.com/oss/deb stable main"
+    state: present
+
+# ===============================
+# Install Grafana
+# ===============================
+- name: Install Grafana
+  apt:
+    name: grafana
+    state: present
+    update_cache: yes
+
+# ===============================
+# Enable & Start service
+# ===============================
+- name: Enable Grafana service
+  systemd:
+    name: grafana-server
+    enabled: yes
+    state: started
+
+# ===============================
+# Allow Grafana port (3000)
+# ===============================
+- name: Allow Grafana port
+  ufw:
+    rule: allow
+    port: 3000
+    proto: tcp
+
+# ===============================
+# Create Grafana provisioning folders
+# ===============================
+- name: Ensure provisioning directories exist
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - /etc/grafana/provisioning/
+    - /etc/grafana/provisioning/datasources
+    - /etc/grafana/provisioning/dashboards
+    - /var/lib/grafana/dashboards
+
+# ===============================
+# Add Prometheus datasource
+# ===============================
+- name: Configure Grafana Prometheus datasource
+  copy:
+    dest: /etc/grafana/provisioning/datasources/prometheus.yml
+    content: |
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          url: http://localhost:9090
+          access: proxy
+          isDefault: true
+
+# ===============================
+# Add Dashboard provisioning config
+# ===============================
+- name: Dashboard provider config
+  copy:
+    dest: /etc/grafana/provisioning/dashboards/dashboard.yml
+    content: |
+      apiVersion: 1
+      providers:
+        - name: 'default'
+          folder: ''
+          type: file
+          disableDeletion: false
+          updateIntervalSeconds: 10
+          options:
+            path: /var/lib/grafana/dashboards
+
+# ===============================
+# Import default dashboards
+# ===============================
+- name: Node Exporter Dashboard
+  copy:
+    src: node_exporter_dashboard.json
+    dest: /var/lib/grafana/dashboards/node_exporter_dashboard.json
+
+- name: Prometheus 2.0 Overview Dashboard
+  copy:
+    src: prometheus_overview.json
+    dest: /var/lib/grafana/dashboards/prometheus_overview.json
+
+# ===============================
+# Restart Grafana
+# ===============================
+- name: Restart Grafana to load configs
+  systemd:
+    name: grafana-server
+    state: restarted
+

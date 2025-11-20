@@ -6,3 +6,4 @@
 *.retry
 # OS
 .DS_Store
+certs/

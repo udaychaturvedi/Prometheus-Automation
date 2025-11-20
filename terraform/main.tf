@@ -3,10 +3,10 @@ provider "aws" {
   region = "ap-south-1"
 }
 
-# Security Group for Prometheus
+# Security Group for Prometheus + Grafana
 resource "aws_security_group" "prometheus_sg" {
   name        = "prometheus-sg"
-  description = "Allow SSH and Prometheus"
+  description = "Allow Prometheus, Alertmanager, Node Exporter, Grafana, SSH"
 
   ingress {
     description = "Allow SSH"
@@ -17,9 +17,33 @@ resource "aws_security_group" "prometheus_sg" {
   }
 
   ingress {
-    description = "Allow Prometheus UI"
+    description = "Prometheus UI"
     from_port   = 9090
     to_port     = 9090
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "Grafana UI"
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "Node Exporter"
+    from_port   = 9100
+    to_port     = 9100
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "Alertmanager"
+    from_port   = 9093
+    to_port     = 9093
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -36,7 +60,7 @@ resource "aws_security_group" "prometheus_sg" {
   }
 }
 
-# EC2 instance for Prometheus
+# EC2 instance for Prometheus + Grafana
 resource "aws_instance" "prometheus_server" {
   ami           = "ami-087d1c9a513324697"
   instance_type = "t2.micro"

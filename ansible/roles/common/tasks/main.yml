@@ -1,0 +1,39 @@
+---
+# Basic system preparation
+- name: Update apt cache
+  apt:
+    update_cache: yes
+
+- name: Upgrade system packages
+  apt:
+    upgrade: yes
+    autoremove: yes
+    autoclean: yes
+
+- name: Install essential packages
+  apt:
+    name:
+      - curl
+      - wget
+      - tar
+      - ufw
+    state: present
+
+# Firewall rules (optional for production)
+- name: Allow SSH
+  ufw:
+    rule: allow
+    port: 22
+    proto: tcp
+
+- name: Allow Prometheus port
+  ufw:
+    rule: allow
+    port: 9090
+    proto: tcp
+
+- name: Enable UFW
+  ufw:
+    state: enabled
+    policy: allow
+
