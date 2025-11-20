@@ -2,14 +2,6 @@ pipeline {
 
     agent any
 
-    parameters {
-        choice(
-            name: 'BUILD_TYPE',
-            choices: ['plan', 'apply', 'destroy', 'ansible-deploy'],
-            description: 'Choose what you want Jenkins to do'
-        )
-    }
-
     stages {
 
         stage('Clean Workspace') {
@@ -24,107 +16,103 @@ pipeline {
             }
         }
 
-        stage('Terraform Init') {
-            when {
-                anyOf {
-                    environment name: 'BUILD_TYPE', value: 'plan'
-                    environment name: 'BUILD_TYPE', value: 'apply'
-                    environment name: 'BUILD_TYPE', value: 'destroy'
-                }
-            }
+        stage('Terraform Init & Validate') {
             steps {
                 dir('terraform') {
                     sh 'terraform init -reconfigure'
+                    sh 'terraform validate'
                 }
             }
         }
 
-        /* -------------------- TERRAFORM PLAN -------------------- */
-        stage('Terraform Plan') {
-            when {
-                environment name: 'BUILD_TYPE', value: 'plan'
-            }
+        stage('User Decision: Apply or Destroy') {
             steps {
-                dir('terraform') {
-                    sh 'terraform plan'
+                script {
+                    def choice = input(
+                        id: "ACTION_CHOICE",
+                        message: "Choose what you want to do:",
+                        parameters: [
+                            choice(
+                                name: 'ACTION',
+                                choices: ['apply', 'destroy'],
+                                description: 'Select apply or destroy'
+                            )
+                        ]
+                    )
+                    env.ACTION = choice
+                    echo "User selected: ${env.ACTION}"
                 }
             }
         }
 
-        /* -------------------- TERRAFORM APPLY -------------------- */
-        stage('User Approval (Apply)') {
-            when {
-                environment name: 'BUILD_TYPE', value: 'apply'
-            }
+        stage('Terraform Apply or Destroy') {
             steps {
-                input message: "Are you sure you want to APPLY infrastructure?"
-            }
-        }
-
-        stage('Terraform Apply') {
-            when {
-                environment name: 'BUILD_TYPE', value: 'apply'
-            }
-            steps {
-                dir('terraform') {
-                    sh 'terraform apply -auto-approve'
+                script {
+                    if (env.ACTION == "apply") {
+                        dir('terraform') {
+                            sh "terraform apply -auto-approve"
+                        }
+                    } else {
+                        dir('terraform') {
+                            sh "terraform destroy -auto-approve"
+                        }
+                        echo "Infrastructure destroyed. Pipeline ending."
+                        currentBuild.result = 'SUCCESS'
+                        return
+                    }
                 }
             }
         }
 
-        /* -------------------- TERRAFORM DESTROY -------------------- */
-        stage('User Approval (Destroy)') {
+        stage('Fetch Public IP (Only for Apply)') {
             when {
-                environment name: 'BUILD_TYPE', value: 'destroy'
+                expression { env.ACTION == "apply" }
             }
             steps {
-                input message: "Are you sure you want to DESTROY infrastructure?"
-            }
-        }
+                script {
+                    env.PROM_IP = sh(
+                        script: "terraform -chdir=terraform output -raw prometheus_public_ip",
+                        returnStdout: true
+                    ).trim()
 
-        stage('Terraform Destroy') {
-            when {
-                environment name: 'BUILD_TYPE', value: 'destroy'
-            }
-            steps {
-                dir('terraform') {
-                    sh 'terraform destroy -auto-approve'
+                    echo "Prometheus Public IP: ${env.PROM_IP}"
                 }
             }
         }
 
-        /* -------------------- ANSIBLE DEPLOY -------------------- */
-        stage('Run Ansible Deployment') {
+        stage('Run Ansible (Only for Apply)') {
             when {
-                environment name: 'BUILD_TYPE', value: 'ansible-deploy'
+                expression { env.ACTION == "apply" }
             }
 
             steps {
-
                 withCredentials([
                     file(credentialsId: 'ec2-ssh-key-file', variable: 'SSH_KEY')
                 ]) {
 
-                    script {
-                        echo "Fetching instance private IP..."
-                        def private_ip = sh(
-                            script: "terraform -chdir=terraform output -raw prometheus_private_ip",
-                            returnStdout: true
-                        ).trim()
-
-                        echo "Running Ansible on: ${private_ip}"
-
-                        dir('ansible') {
-                            sh """
-                                ANSIBLE_HOST_KEY_CHECKING=False \
-                                ansible-playbook \
-                                    -i inventory_aws_ec2.yml \
-                                    site.yml \
-                                    --private-key \$SSH_KEY
-                            """
-                        }
+                    dir('ansible') {
+                        sh """
+                            ANSIBLE_HOST_KEY_CHECKING=False \
+                            ansible-playbook -i inventory_aws_ec2.yml site.yml \
+                            --private-key \$SSH_KEY
+                        """
                     }
                 }
+            }
+        }
+
+        stage('Final Output (Only for Apply)') {
+            when {
+                expression { env.ACTION == "apply" }
+            }
+            steps {
+                echo "======================================="
+                echo "      Deployment Completed Successfully"
+                echo "======================================="
+                echo "Prometheus: http://${env.PROM_IP}:9090"
+                echo "Grafana:    http://${env.PROM_IP}:3000"
+                echo "AlertManager: http://${env.PROM_IP}:9093"
+                echo "======================================="
             }
         }
     }
@@ -134,7 +122,7 @@ pipeline {
             echo "Pipeline executed successfully!"
         }
         failure {
-            echo "Pipeline failed! Please check logs."
+            echo "Pipeline failed!"
         }
     }
 }
