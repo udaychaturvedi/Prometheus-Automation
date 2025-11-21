@@ -18,12 +18,6 @@
       - tar
       - ufw
     state: present
-
-# Firewall rules
-
-- name: Reset UFW
-  ufw:
-    state: reset
       
 - name: Allow SSH (22)
   ufw:
@@ -55,8 +49,7 @@
     port: 9100
     proto: tcp
 
-# Enable UFW AFTER adding all rules
-- name: Enable UFW
+- name: Disable UFW completely
   ufw:
-    state: enabled
+    state: disabled
 
