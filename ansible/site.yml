@@ -1,6 +1,6 @@
 ---
-- name: Deploy Prometheus stack
-  hosts: prometheus_group
+- name: Install Prometheus Stack
+  hosts: prometheus
   become: yes
 
   roles:
