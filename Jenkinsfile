@@ -1,15 +1,17 @@
 pipeline {
     agent any
 
+    environment {
+        TF_DIR = "terraform/jenkins-ec2"
+    }
+
     stages {
 
         stage('Clean Workspace') {
-            steps { 
-                deleteDir() 
-            }
+            steps { deleteDir() }
         }
 
-        stage('Checkout Code') {
+        stage('Checkout Repo') {
             steps {
                 git(
                     url: 'https://github.com/udaychaturvedi/Prometheus-Automation.git',
@@ -21,7 +23,7 @@ pipeline {
 
         stage('Terraform Init') {
             steps {
-                dir('terraform') {
+                dir(env.TF_DIR) {
                     sh 'terraform init -reconfigure'
                 }
             }
@@ -30,43 +32,29 @@ pipeline {
         stage('Choose Action') {
             steps {
                 script {
-                    def ACTION = input(
-                        message: "What do you want to do?",
-                        parameters: [choice(
-                            name: 'ACTION',
-                            choices: ['apply', 'destroy'],
-                            description: 'Select action'
-                        )]
-                    )
-                    env.ACTION = ACTION
-                    echo "Selected action: ${env.ACTION}"
+                    env.ACTION = input message: "Choose Action",
+                    parameters: [choice(name: 'ACTION', choices: ['apply','destroy'], description: '')]
+
+                    echo "Selected: ${env.ACTION}"
                 }
             }
         }
 
         stage('Terraform Apply') {
-            when { expression { env.ACTION == 'apply' } }
+            when { expression { env.ACTION == "apply" } }
             steps {
-                dir('terraform') {
-                    sh 'terraform apply -auto-approve'
+                dir(env.TF_DIR) {
+                    sh "terraform apply -auto-approve"
                 }
             }
         }
 
         stage('Terraform Destroy') {
-            when { expression { env.ACTION == 'destroy' } }
+            when { expression { env.ACTION == "destroy" } }
             steps {
-                dir('terraform') {
-                    sh 'terraform destroy -auto-approve'
+                dir(env.TF_DIR) {
+                    sh "terraform destroy -auto-approve"
                 }
-            }
-        }
-
-        stage('Wait for EC2') {
-            when { expression { env.ACTION == 'apply' } }
-            steps {
-                echo "⏳ Waiting 45 seconds for EC2 startup..."
-                sh "sleep 45"
             }
         }
 
@@ -74,58 +62,47 @@ pipeline {
             when { expression { env.ACTION == 'apply' } }
             steps {
                 script {
-                    def PUBLIC_IP = sh(
-                        script: 'terraform -chdir=terraform output -raw prometheus_public_ip',
+                    env.PUB_IP = sh(
+                        script: "terraform -chdir=${env.TF_DIR} output -raw jenkins_public_ip",
                         returnStdout: true
                     ).trim()
 
-                    env.PROM_PUBLIC_IP = PUBLIC_IP
-                    echo "Prometheus Public IP = ${env.PROM_PUBLIC_IP}"
+                    echo "EC2 Public IP: ${env.PUB_IP}"
                 }
             }
         }
 
-        stage('Run Ansible Deployment') {
+        stage('Run Ansible') {
             when { expression { env.ACTION == 'apply' } }
             steps {
                 withCredentials([file(credentialsId: 'new-uday-key', variable: 'SSH_KEY')]) {
-
                     dir('ansible') {
-                        sh '''
-                        set -e
-                        chmod 600 "$SSH_KEY"
+                        sh """
+                            echo "[prometheus]" > inventory.ini
+                            echo "${PUB_IP}" >> inventory.ini
 
-                        export SSH_KEY="$SSH_KEY"
-                        export ANSIBLE_HOST_KEY_CHECKING=False
+                            chmod 600 \$SSH_KEY
+                            export ANSIBLE_HOST_KEY_CHECKING=False
 
-                        ansible-playbook \
-                            -i inventory_aws_ec2.yml \
-                            site.yml \
-                            --private-key "$SSH_KEY"
-                        '''
+                            ansible-playbook -i inventory.ini site.yml --private-key=\$SSH_KEY -u ubuntu
+                        """
                     }
                 }
             }
         }
 
-        stage('Show Access URLs') {
+        stage('Show URLs') {
             when { expression { env.ACTION == 'apply' } }
             steps {
-                echo "=============================================="
-                echo "Prometheus   : http://${env.PROM_PUBLIC_IP}:9090"
-                echo "Alertmanager : http://${env.PROM_PUBLIC_IP}:9093"
-                echo "Grafana      : http://${env.PROM_PUBLIC_IP}:3000"
-                echo "=============================================="
+                echo "Prometheus   : http://${env.PUB_IP}:9090"
+                echo "Alertmanager : http://${env.PUB_IP}:9093"
+                echo "Grafana      : http://${env.PUB_IP}:3000"
             }
         }
     }
 
     post {
-        success {
-            echo " Pipeline Completed Successfully!"
-        }
-        failure {
-            echo " Pipeline Failed! Check logs."
-        }
+        success { echo "Pipeline Completed Successfully!" }
+        failure { echo "Pipeline Failed! Check logs." }
     }
 }
