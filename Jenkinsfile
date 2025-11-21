@@ -4,7 +4,9 @@ pipeline {
     stages {
 
         stage('Clean Workspace') {
-            steps { deleteDir() }
+            steps { 
+                deleteDir() 
+            }
         }
 
         stage('Checkout Code') {
@@ -36,9 +38,8 @@ pipeline {
                             description: 'Select action'
                         )]
                     )
-                    // store in env for later stages
                     env.ACTION = ACTION
-                    echo "User selected: ${env.ACTION}"
+                    echo "Selected action: ${env.ACTION}"
                 }
             }
         }
@@ -61,13 +62,11 @@ pipeline {
             }
         }
 
-        stage('Wait for EC2 to be Ready') {
+        stage('Wait for EC2') {
             when { expression { env.ACTION == 'apply' } }
             steps {
-                script {
-                    echo "⏳ Waiting 45 seconds for EC2 boot & SSH readiness..."
-                    sh "sleep 45"
-                }
+                echo "⏳ Waiting 45 seconds for EC2 startup..."
+                sh "sleep 45"
             }
         }
 
@@ -79,6 +78,7 @@ pipeline {
                         script: 'terraform -chdir=terraform output -raw prometheus_public_ip',
                         returnStdout: true
                     ).trim()
+
                     env.PROM_PUBLIC_IP = PUBLIC_IP
                     echo "Prometheus Public IP = ${env.PROM_PUBLIC_IP}"
                 }
@@ -88,40 +88,44 @@ pipeline {
         stage('Run Ansible Deployment') {
             when { expression { env.ACTION == 'apply' } }
             steps {
-                // use secret-file credential (type: Secret file) which exposes a filepath
-                withCredentials([file(credentialsId: 'ec2-ssh-key-file', variable: 'SSH_KEY')]) {
+                withCredentials([file(credentialsId: 'new-uday-key', variable: 'SSH_KEY')]) {
+
                     dir('ansible') {
                         sh '''
                         set -e
                         chmod 600 "$SSH_KEY"
+
+                        export SSH_KEY="$SSH_KEY"
                         export ANSIBLE_HOST_KEY_CHECKING=False
-                        ansible-playbook -i inventory_aws_ec2.yml site.yml --private-key "$SSH_KEY"
+
+                        ansible-playbook \
+                            -i inventory_aws_ec2.yml \
+                            site.yml \
+                            --private-key "$SSH_KEY"
                         '''
                     }
                 }
             }
         }
 
-        stage('Show URLs') {
+        stage('Show Access URLs') {
             when { expression { env.ACTION == 'apply' } }
             steps {
-                script {
-                    echo "=============================================="
-                    echo "Prometheus   : http://${env.PROM_PUBLIC_IP}:9090"
-                    echo "Alertmanager : http://${env.PROM_PUBLIC_IP}:9093"
-                    echo "Grafana      : http://${env.PROM_PUBLIC_IP}:3000"
-                    echo "=============================================="
-                }
+                echo "=============================================="
+                echo "Prometheus   : http://${env.PROM_PUBLIC_IP}:9090"
+                echo "Alertmanager : http://${env.PROM_PUBLIC_IP}:9093"
+                echo "Grafana      : http://${env.PROM_PUBLIC_IP}:3000"
+                echo "=============================================="
             }
         }
     }
 
     post {
         success {
-            echo "Pipeline Completed Successfully!"
+            echo " Pipeline Completed Successfully!"
         }
         failure {
-            echo "Pipeline failed! Check logs."
+            echo " Pipeline Failed! Check logs."
         }
     }
 }
