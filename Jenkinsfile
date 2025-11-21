@@ -1,9 +1,10 @@
 pipeline {
     agent any
 
-    environment {
-        TF_DIR = "terraform/jenkins-ec2"
-    }
+   environment {
+    TF_DIR = "terraform"
+        }
+
 
     stages {
 
@@ -106,3 +107,4 @@ pipeline {
         failure { echo "Pipeline Failed! Check logs." }
     }
 }
+
