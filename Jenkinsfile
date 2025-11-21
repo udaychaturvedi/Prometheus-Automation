@@ -6,7 +6,6 @@ pipeline {
     }
 
     stages {
-
         stage('Clean Workspace') {
             steps { deleteDir() }
         }
@@ -18,6 +17,15 @@ pipeline {
                     branch: 'main',
                     credentialsId: 'github-creds'
                 )
+            }
+        }
+
+        stage('Clean Terraform Lock (best-effort)') {
+            steps {
+                echo "Attempting to remove stale DynamoDB lock (no-op if not present)..."
+                sh '''
+                  aws dynamodb delete-item --table-name terraform-locks --key '{"LockID":{"S":"prometheus/terraform.tfstate"}}' || true
+                '''
             }
         }
 
@@ -33,60 +41,72 @@ pipeline {
             steps {
                 script {
                     env.ACTION = input(
-                        message: "Choose Action",
-                        parameters: [choice(name: 'ACTION', choices: ['apply','destroy'])]
+                        message: "Select action",
+                        parameters: [choice(name: 'ACTION', choices: ['apply','destroy'], description: '')]
                     )
+                    echo "Selected: ${env.ACTION}"
                 }
             }
         }
 
-        stage('Terraform Apply') {
-            when { expression { env.ACTION == "apply" } }
+        stage('Terraform Apply/Destroy') {
             steps {
                 dir(env.TF_DIR) {
-                    sh 'terraform apply -auto-approve -lock=false'
+                    script {
+                        if (env.ACTION == 'apply') {
+                            sh 'terraform apply -auto-approve -lock=false'
+                        } else {
+                            sh 'terraform destroy -auto-approve -lock=false'
+                        }
+                    }
                 }
             }
         }
 
-        stage('Get Bastion + Private IPs') {
-            when { expression { env.ACTION == "apply" } }
+        stage('Get Outputs') {
+            when { expression { env.ACTION == 'apply' } }
             steps {
-                script {
-                    env.BASTION_IP = sh(
-                        script: "terraform -chdir=${env.TF_DIR} output -raw bastion_public_ip",
-                        returnStdout: true
-                    ).trim()
-
-                    env.PRIVATE_IP = sh(
-                        script: "terraform -chdir=${env.TF_DIR} output -raw prometheus_private_ip",
-                        returnStdout: true
-                    ).trim()
-
-                    echo "Bastion IP      = ${env.BASTION_IP}"
-                    echo "Private IP      = ${env.PRIVATE_IP}"
+                dir(env.TF_DIR) {
+                    script {
+                        env.BASTION_IP = sh(script: "terraform output -raw bastion_public_ip", returnStdout: true).trim()
+                        env.PROM_PRIVATE_IP = sh(script: "terraform output -raw prometheus_private_ip", returnStdout: true).trim()
+                        env.PROM_PUBLIC_IP = sh(script: "terraform output -raw prometheus_public_ip", returnStdout: true).trim()
+                        echo "Bastion IP: ${env.BASTION_IP}"
+                        echo "Prometheus Private IP: ${env.PROM_PRIVATE_IP}"
+                        echo "Prometheus Public IP (if any): ${env.PROM_PUBLIC_IP}"
+                    }
                 }
             }
         }
 
-        stage('Run Ansible') {
+        stage('Run Ansible via Bastion') {
             when { expression { env.ACTION == 'apply' } }
             steps {
                 withCredentials([file(credentialsId: 'new-uday-key', variable: 'SSH_KEY')]) {
-
                     dir('ansible') {
-                        sh '''
-                            echo "[prometheus]" > inventory.ini
-                            echo "${PRIVATE_IP}" >> inventory.ini
+                        sh """
+                        set -e
+                        chmod 600 $SSH_KEY
 
-                            chmod 600 $SSH_KEY
-                            export ANSIBLE_HOST_KEY_CHECKING=False
+                        # build inventory with private IP
+                        cat > inventory.ini <<EOF
+[prometheus]
+${PROM_PRIVATE_IP} ansible_user=ubuntu ansible_ssh_private_key_file=${SSH_KEY}
+EOF
 
-                            echo "[ssh_connection]" > ansible.cfg
-                            echo "ssh_args = -o ProxyCommand=\\"ssh -W %h:%p -i $SSH_KEY ubuntu@${BASTION_IP}\\"" >> ansible.cfg
+                        # create ansible.cfg to use ProxyCommand via bastion
+                        cat > ansible.cfg <<EOF
+[defaults]
+inventory = inventory.ini
+host_key_checking = False
 
-                            ansible-playbook -i inventory.ini site.yml --private-key=$SSH_KEY -u ubuntu
-                        '''
+[ssh_connection]
+ssh_args = -o ProxyCommand="ssh -W %h:%p -i ${SSH_KEY} ubuntu@${BASTION_IP}"
+EOF
+
+                        echo "Running Ansible playbook (via bastion proxy)..."
+                        ansible-playbook -i inventory.ini site.yml --private-key=$SSH_KEY -u ubuntu
+                        """
                     }
                 }
             }
@@ -95,18 +115,25 @@ pipeline {
         stage('Show Access Info') {
             when { expression { env.ACTION == 'apply' } }
             steps {
-                echo "==============================================="
-                echo "TUNNEL COMMAND (run on your laptop)"
+                echo "=============================================="
+                echo "Prometheus private : http://${PROM_PRIVATE_IP}:9090"
+                echo "Grafana private    : http://${PROM_PRIVATE_IP}:3000"
+                echo "Alertmanager       : http://${PROM_PRIVATE_IP}:9093"
                 echo ""
-                echo "ssh -i ~/new-uday-key.pem -L 9090:${env.PRIVATE_IP}:9090 -L 9093:${env.PRIVATE_IP}:9093 -L 3000:${env.PRIVATE_IP}:3000 ubuntu@${env.BASTION_IP}"
-                echo "==============================================="
+                echo "Run this locally to tunnel (on your laptop):"
+                echo "ssh -i ~/new-uday-key.pem -L 9090:${PROM_PRIVATE_IP}:9090 -L 9093:${PROM_PRIVATE_IP}:9093 -L 3000:${PROM_PRIVATE_IP}:3000 ubuntu@${BASTION_IP}"
+                echo "Then open http://localhost:9090 and http://localhost:3000"
+                echo "=============================================="
             }
         }
-
     }
 
     post {
-        success { echo "Pipeline Completed Successfully!" }
-        failure { echo "Pipeline Failed! Check logs." }
+        success {
+            echo "Pipeline completed successfully"
+        }
+        failure {
+            echo "Pipeline failed - check logs"
+        }
     }
 }
