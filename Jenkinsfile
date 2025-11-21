@@ -24,10 +24,7 @@ pipeline {
         stage('Terraform Init') {
             steps {
                 dir(env.TF_DIR) {
-                    sh '''
-                        echo "Running Terraform Init..."
-                        terraform init -reconfigure
-                    '''
+                    sh 'terraform init -reconfigure'
                 }
             }
         }
@@ -35,16 +32,10 @@ pipeline {
         stage('Choose Action') {
             steps {
                 script {
-                    env.ACTION = input message: "Choose Action",
-                    parameters: [
-                        choice(
-                            name: 'ACTION',
-                            choices: ['apply','destroy'],
-                            description: ''
-                        )
-                    ]
-
-                    echo "Selected: ${env.ACTION}"
+                    env.ACTION = input(
+                        message: "Choose Action",
+                        parameters: [choice(name: 'ACTION', choices: ['apply','destroy'])]
+                    )
                 }
             }
         }
@@ -53,36 +44,27 @@ pipeline {
             when { expression { env.ACTION == "apply" } }
             steps {
                 dir(env.TF_DIR) {
-                    sh '''
-                        echo "Running Terraform Apply..."
-                        terraform apply -auto-approve -lock=false
-                    '''
+                    sh 'terraform apply -auto-approve -lock=false'
                 }
             }
         }
 
-        stage('Terraform Destroy') {
-            when { expression { env.ACTION == "destroy" } }
-            steps {
-                dir(env.TF_DIR) {
-                    sh '''
-                        echo "Running Terraform Destroy..."
-                        terraform destroy -auto-approve -lock=false
-                    '''
-                }
-            }
-        }
-
-        stage('Get Public IP') {
-            when { expression { env.ACTION == 'apply' } }
+        stage('Get Bastion + Private IPs') {
+            when { expression { env.ACTION == "apply" } }
             steps {
                 script {
-                    env.PUB_IP = sh(
-                        script: "terraform -chdir=${env.TF_DIR} output -raw jenkins_public_ip",
+                    env.BASTION_IP = sh(
+                        script: "terraform -chdir=${env.TF_DIR} output -raw bastion_public_ip",
                         returnStdout: true
                     ).trim()
 
-                    echo "EC2 Public IP = ${env.PUB_IP}"
+                    env.PRIVATE_IP = sh(
+                        script: "terraform -chdir=${env.TF_DIR} output -raw prometheus_private_ip",
+                        returnStdout: true
+                    ).trim()
+
+                    echo "Bastion IP      = ${env.BASTION_IP}"
+                    echo "Private IP      = ${env.PRIVATE_IP}"
                 }
             }
         }
@@ -95,12 +77,14 @@ pipeline {
                     dir('ansible') {
                         sh '''
                             echo "[prometheus]" > inventory.ini
-                            echo "${PUB_IP}" >> inventory.ini
+                            echo "${PRIVATE_IP}" >> inventory.ini
 
                             chmod 600 $SSH_KEY
                             export ANSIBLE_HOST_KEY_CHECKING=False
 
-                            echo "Running Ansible Playbook..."
+                            echo "[ssh_connection]" > ansible.cfg
+                            echo "ssh_args = -o ProxyCommand=\\"ssh -W %h:%p -i $SSH_KEY ubuntu@${BASTION_IP}\\"" >> ansible.cfg
+
                             ansible-playbook -i inventory.ini site.yml --private-key=$SSH_KEY -u ubuntu
                         '''
                     }
@@ -108,14 +92,14 @@ pipeline {
             }
         }
 
-        stage('Show URLs') {
+        stage('Show Access Info') {
             when { expression { env.ACTION == 'apply' } }
             steps {
-                echo "=============================================="
-                echo "Prometheus   : http://${env.PUB_IP}:9090"
-                echo "Alertmanager : http://${env.PUB_IP}:9093"
-                echo "Grafana      : http://${env.PUB_IP}:3000"
-                echo "=============================================="
+                echo "==============================================="
+                echo "TUNNEL COMMAND (run on your laptop)"
+                echo ""
+                echo "ssh -i ~/new-uday-key.pem -L 9090:${env.PRIVATE_IP}:9090 -L 9093:${env.PRIVATE_IP}:9093 -L 3000:${env.PRIVATE_IP}:3000 ubuntu@${env.BASTION_IP}"
+                echo "==============================================="
             }
         }
 
