@@ -1,10 +1,9 @@
 pipeline {
     agent any
 
-   environment {
-    TF_DIR = "terraform"
-        }
-
+    environment {
+        TF_DIR = "terraform"
+    }
 
     stages {
 
@@ -19,6 +18,18 @@ pipeline {
                     branch: 'main',
                     credentialsId: 'github-creds'
                 )
+            }
+        }
+
+        stage('Clean Terraform Lock') {
+            steps {
+                echo "Removing stale Terraform lock (if exists)..."
+                sh '''
+                aws dynamodb delete-item \
+                    --table-name terraform-locks \
+                    --key '{"LockID": {"S": "prometheus/terraform.tfstate"}}' \
+                    || true
+                '''
             }
         }
 
@@ -107,4 +118,3 @@ pipeline {
         failure { echo "Pipeline Failed! Check logs." }
     }
 }
-
