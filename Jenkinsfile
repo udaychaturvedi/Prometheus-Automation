@@ -21,22 +21,13 @@ pipeline {
             }
         }
 
-        stage('Clean Terraform Lock') {
-            steps {
-                echo "Removing stale Terraform lock (if exists)..."
-                sh '''
-                aws dynamodb delete-item \
-                    --table-name terraform-locks \
-                    --key '{"LockID": {"S": "prometheus/terraform.tfstate"}}' \
-                    || true
-                '''
-            }
-        }
-
         stage('Terraform Init') {
             steps {
                 dir(env.TF_DIR) {
-                    sh 'terraform init -reconfigure'
+                    sh '''
+                        echo "Running Terraform Init..."
+                        terraform init -reconfigure
+                    '''
                 }
             }
         }
@@ -45,7 +36,13 @@ pipeline {
             steps {
                 script {
                     env.ACTION = input message: "Choose Action",
-                    parameters: [choice(name: 'ACTION', choices: ['apply','destroy'], description: '')]
+                    parameters: [
+                        choice(
+                            name: 'ACTION',
+                            choices: ['apply','destroy'],
+                            description: ''
+                        )
+                    ]
 
                     echo "Selected: ${env.ACTION}"
                 }
@@ -56,7 +53,10 @@ pipeline {
             when { expression { env.ACTION == "apply" } }
             steps {
                 dir(env.TF_DIR) {
-                    sh "terraform apply -auto-approve"
+                    sh '''
+                        echo "Running Terraform Apply..."
+                        terraform apply -auto-approve -lock=false
+                    '''
                 }
             }
         }
@@ -65,7 +65,10 @@ pipeline {
             when { expression { env.ACTION == "destroy" } }
             steps {
                 dir(env.TF_DIR) {
-                    sh "terraform destroy -auto-approve"
+                    sh '''
+                        echo "Running Terraform Destroy..."
+                        terraform destroy -auto-approve -lock=false
+                    '''
                 }
             }
         }
@@ -79,7 +82,7 @@ pipeline {
                         returnStdout: true
                     ).trim()
 
-                    echo "EC2 Public IP: ${env.PUB_IP}"
+                    echo "EC2 Public IP = ${env.PUB_IP}"
                 }
             }
         }
@@ -88,16 +91,18 @@ pipeline {
             when { expression { env.ACTION == 'apply' } }
             steps {
                 withCredentials([file(credentialsId: 'new-uday-key', variable: 'SSH_KEY')]) {
+
                     dir('ansible') {
-                        sh """
+                        sh '''
                             echo "[prometheus]" > inventory.ini
                             echo "${PUB_IP}" >> inventory.ini
 
-                            chmod 600 \$SSH_KEY
+                            chmod 600 $SSH_KEY
                             export ANSIBLE_HOST_KEY_CHECKING=False
 
-                            ansible-playbook -i inventory.ini site.yml --private-key=\$SSH_KEY -u ubuntu
-                        """
+                            echo "Running Ansible Playbook..."
+                            ansible-playbook -i inventory.ini site.yml --private-key=$SSH_KEY -u ubuntu
+                        '''
                     }
                 }
             }
@@ -106,11 +111,14 @@ pipeline {
         stage('Show URLs') {
             when { expression { env.ACTION == 'apply' } }
             steps {
+                echo "=============================================="
                 echo "Prometheus   : http://${env.PUB_IP}:9090"
                 echo "Alertmanager : http://${env.PUB_IP}:9093"
                 echo "Grafana      : http://${env.PUB_IP}:3000"
+                echo "=============================================="
             }
         }
+
     }
 
     post {
