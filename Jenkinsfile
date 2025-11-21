@@ -3,6 +3,7 @@ pipeline {
 
     environment {
         TF_DIR = "terraform"
+        BASTION_IP = "13.201.63.0"   // Update if bastion changes
     }
 
     stages {
@@ -23,8 +24,10 @@ pipeline {
 
         stage('Terraform Init') {
             steps {
-                dir(env.TF_DIR) {
-                    sh 'terraform init -reconfigure'
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']]) {
+                    dir(env.TF_DIR) {
+                        sh 'terraform init -reconfigure'
+                    }
                 }
             }
         }
@@ -34,9 +37,7 @@ pipeline {
                 script {
                     env.ACTION = input(
                         message: "Choose action",
-                        parameters: [
-                            choice(name: 'ACTION', choices: ['apply', 'destroy'], description: '')
-                        ]
+                        parameters: [choice(name: 'ACTION', choices: ['apply', 'destroy'], description: '')]
                     )
                 }
             }
@@ -44,12 +45,14 @@ pipeline {
 
         stage('Terraform Apply/Destroy') {
             steps {
-                dir(env.TF_DIR) {
-                    script {
-                        if (env.ACTION == 'apply') {
-                            sh 'terraform apply -auto-approve -lock=false'
-                        } else {
-                            sh 'terraform destroy -auto-approve -lock=false'
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']]) {
+                    dir(env.TF_DIR) {
+                        script {
+                            if (env.ACTION == 'apply') {
+                                sh 'terraform apply -auto-approve -lock=false'
+                            } else {
+                                sh 'terraform destroy -auto-approve -lock=false'
+                            }
                         }
                     }
                 }
@@ -62,7 +65,7 @@ pipeline {
                 dir(env.TF_DIR) {
                     script {
                         env.PROM_PRIVATE_IP = sh(script: "terraform output -raw prometheus_private_ip", returnStdout: true).trim()
-                        echo "Prometheus Private IP retrieved: ${env.PROM_PRIVATE_IP}"
+                        echo "Prometheus Private IP: ${env.PROM_PRIVATE_IP}"
                     }
                 }
             }
@@ -82,7 +85,7 @@ pipeline {
 ${PROM_PRIVATE_IP} ansible_user=ubuntu ansible_ssh_private_key_file=${SSH_KEY}
 
 [all:vars]
-ansible_ssh_common_args='-o ProxyCommand="ssh -i ${SSH_KEY} -W %h:%p ubuntu@13.201.63.0"'
+ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ProxyCommand="ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no -W %h:%p ubuntu@${BASTION_IP}"'
 EOF
 
                         echo "Running Ansible..."
@@ -97,18 +100,18 @@ EOF
             when { expression { env.ACTION == 'apply' } }
             steps {
                 echo "============================================"
-                echo "Prometheus   (via SSH Tunnel): http://localhost:9090"
-                echo "Grafana      (via SSH Tunnel): http://localhost:3000"
-                echo "Alertmanager (via SSH Tunnel): http://localhost:9093"
+                echo "Prometheus   → http://localhost:9090"
+                echo "Grafana      → http://localhost:3000"
+                echo "Alertmanager → http://localhost:9093"
                 echo ""
-                echo "To create the tunnel, run:"
-                echo ""
-                echo "ssh -i ~/new-uday-key.pem \\"
-                echo "  -L 9090:${PROM_PRIVATE_IP}:9090 \\"
-                echo "  -L 3000:${PROM_PRIVATE_IP}:3000 \\"
-                echo "  -L 9093:${PROM_PRIVATE_IP}:9093 \\"
-                echo "  ubuntu@13.201.63.0"
-                echo ""
+                echo "Run SSH tunnel:"
+                echo """
+ssh -i ~/new-uday-key.pem \\
+  -L 9090:${PROM_PRIVATE_IP}:9090 \\
+  -L 3000:${PROM_PRIVATE_IP}:3000 \\
+  -L 9093:${PROM_PRIVATE_IP}:9093 \\
+  ubuntu@${BASTION_IP}
+                """
                 echo "============================================"
             }
         }
