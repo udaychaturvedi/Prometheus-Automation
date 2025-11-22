@@ -19,21 +19,6 @@ resource "aws_s3_bucket" "tfstate" {
   }
 }
 
-resource "aws_dynamodb_table" "tf_locks" {
-  name         = "uday-prometheus-terraform-locks"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "LockID"
-
-  attribute {
-    name = "LockID"
-    type = "S"
-  }
-
-  tags = {
-    Name = "uday-prometheus-locks"
-  }
-}
-
 data "aws_iam_role" "jenkins_role" {
   name = var.jenkins_role_name
 }

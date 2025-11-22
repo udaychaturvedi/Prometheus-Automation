@@ -13,7 +13,7 @@ resource "aws_launch_template" "prometheus_lt" {
     aws_security_group.prometheus_sg.id
   ]
 
-  user_data = <<-EOF
+  user_data = base64encode(<<EOF
 #!/bin/bash
 apt-get update -y
 apt-get install -y docker.io
@@ -21,8 +21,9 @@ apt-get install -y docker.io
 systemctl enable docker
 systemctl start docker
 
-# Prometheus, Alertmanager, Grafana, Node Exporter will be installed by Ansible
+# Prometheus, Alertmanager, Grafana, Node Exporter installed by Ansible
 EOF
+)
 
   tag_specifications {
     resource_type = "instance"
