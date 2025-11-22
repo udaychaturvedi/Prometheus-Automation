@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         TF_DIR = "terraform"
-        BASTION_IP = "13.201.63.0"   // Update if bastion changes
+        BASTION_IP = "13.201.63.0"
     }
 
     stages {
@@ -24,10 +24,8 @@ pipeline {
 
         stage('Terraform Init') {
             steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']]) {
-                    dir(env.TF_DIR) {
-                        sh 'terraform init -reconfigure'
-                    }
+                dir(env.TF_DIR) {
+                    sh 'terraform init -reconfigure'
                 }
             }
         }
@@ -37,7 +35,9 @@ pipeline {
                 script {
                     env.ACTION = input(
                         message: "Choose action",
-                        parameters: [choice(name: 'ACTION', choices: ['apply', 'destroy'], description: '')]
+                        parameters: [
+                            choice(name: 'ACTION', choices: ['apply', 'destroy'], description: '')
+                        ]
                     )
                 }
             }
@@ -45,14 +45,12 @@ pipeline {
 
         stage('Terraform Apply/Destroy') {
             steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']]) {
-                    dir(env.TF_DIR) {
-                        script {
-                            if (env.ACTION == 'apply') {
-                                sh 'terraform apply -auto-approve -lock=false'
-                            } else {
-                                sh 'terraform destroy -auto-approve -lock=false'
-                            }
+                dir(env.TF_DIR) {
+                    script {
+                        if (env.ACTION == 'apply') {
+                            sh 'terraform apply -auto-approve -lock=false'
+                        } else {
+                            sh 'terraform destroy -auto-approve -lock=false'
                         }
                     }
                 }
@@ -88,7 +86,6 @@ ${PROM_PRIVATE_IP} ansible_user=ubuntu ansible_ssh_private_key_file=${SSH_KEY}
 ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ProxyCommand="ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no -W %h:%p ubuntu@${BASTION_IP}"'
 EOF
 
-                        echo "Running Ansible..."
                         ansible-playbook -i inventory.ini site.yml
                         '''
                     }
