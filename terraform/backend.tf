@@ -1,9 +1,9 @@
 terraform {
   backend "s3" {
-    bucket         = "prometheus-terraform-state-uday123-new"
+    bucket         = "uday-prometheus-terraform-state-ap-south-1"
     key            = "prometheus/terraform.tfstate"
-    region         = "eu-north-1"
-    dynamodb_table = "terraform-locks"
+    region         = "ap-south-1"
+    dynamodb_table = "uday-prometheus-terraform-locks"
     encrypt        = true
   }
 }
