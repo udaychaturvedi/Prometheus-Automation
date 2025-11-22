@@ -1,19 +1,28 @@
+#############################################
+# LAUNCH TEMPLATE FOR PROMETHEUS ASG
+#############################################
+
 resource "aws_launch_template" "prometheus_lt" {
   name_prefix   = "prometheus-lt-"
   image_id      = data.aws_ami.ubuntu.id
   instance_type = var.prometheus_instance_type
-  key_name      = var.create_keypair ? aws_key_pair.generated[0].key_name : var.keypair_name
 
-  vpc_security_group_ids = [aws_security_group.prometheus_sg.id]
+  key_name = var.create_keypair ? aws_key_pair.generated[0].key_name : var.keypair_name
 
-  user_data = base64encode(<<-EOF
-              #!/bin/bash
-              apt-get update -y
-              apt-get install -y docker.io
-              systemctl enable docker
-              systemctl start docker
-              # install node_exporter/prometheus/grafana will be via Ansible after instance is ready
-              EOF)
+  vpc_security_group_ids = [
+    aws_security_group.prometheus_sg.id
+  ]
+
+  user_data = <<-EOF
+#!/bin/bash
+apt-get update -y
+apt-get install -y docker.io
+
+systemctl enable docker
+systemctl start docker
+
+# Prometheus, Alertmanager, Grafana, Node Exporter will be installed by Ansible
+EOF
 
   tag_specifications {
     resource_type = "instance"
@@ -23,25 +32,39 @@ resource "aws_launch_template" "prometheus_lt" {
   }
 }
 
+#############################################
+# AUTO SCALING GROUP FOR PROMETHEUS
+#############################################
+
 resource "aws_autoscaling_group" "prometheus_asg" {
-  name                      = "prometheus-asg"
-  desired_capacity          = var.prometheus_asg_desired_capacity
-  max_size                  = 3
-  min_size                  = 1
-  vpc_zone_identifier       = local.create_vpc ? [aws_subnet.public[0].id] : var.public_subnet_ids
+  name               = "prometheus-asg"
+  desired_capacity   = var.prometheus_asg_desired_capacity
+  max_size           = 3
+  min_size           = 1
+
+  vpc_zone_identifier = local.create_vpc ?
+    [aws_subnet.public[0].id] :
+    var.public_subnet_ids
+
   launch_template {
     id      = aws_launch_template.prometheus_lt.id
     version = "$Latest"
   }
+
   lifecycle {
     create_before_destroy = true
   }
+
   tag {
     key                 = "Name"
     value               = "prometheus-asg-instance"
     propagate_at_launch = true
   }
 }
+
+#############################################
+# OUTPUT
+#############################################
 
 output "prometheus_asg_name" {
   value = aws_autoscaling_group.prometheus_asg.name
