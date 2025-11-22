@@ -1,37 +1,28 @@
-resource "aws_s3_bucket" "tfstate" {
+#################################################
+# s3_dynamodb_iam.tf  (SAFE - no create for backend)
+#
+# NOTE: We DO NOT create the backend bucket/table or IAM policy here.
+# Those must exist prior to terraform init/apply and are managed externally.
+#################################################
+
+# (Optional) reference existing S3 bucket - used only for informational/reference
+# If you need to access the bucket in resources, use this data source.
+data "aws_s3_bucket" "tfstate" {
   bucket = "uday-prometheus-terraform-state-ap-south-1"
-  acl    = "private"
-
-  server_side_encryption_configuration {
-    rule {
-      apply_server_side_encryption_by_default {
-        sse_algorithm = "AES256"
-      }
-    }
-  }
-
-  versioning {
-    enabled = true
-  }
-
-  tags = {
-    Name = "uday-prometheus-tfstate"
-  }
 }
 
+# (Optional) reference existing DynamoDB table for locking (informational only)
+data "aws_dynamodb_table" "tf_locks" {
+  name = "uday-prometheus-terraform-locks"
+}
+
+# Keep the Jenkins role lookup (we DO NOT attach new policies from terraform)
 data "aws_iam_role" "jenkins_role" {
   name = var.jenkins_role_name
 }
 
-resource "aws_iam_policy" "jenkins_tf_policy" {
-  name        = "jenkins-terraform-policy-uday"
-  description = "Least-privilege policy for Jenkins to run Terraform for Prometheus infra"
-
-  policy = file("${path.module}/iam/jenkins_policy.json")
-}
-
-resource "aws_iam_role_policy_attachment" "attach_jenkins_policy" {
-  role       = data.aws_iam_role.jenkins_role.name
-  policy_arn = aws_iam_policy.jenkins_tf_policy.arn
-}
+# NOTE:
+# - IAM policy creation and attachment removed because the instance role cannot create IAM policies.
+# - S3 bucket and DynamoDB creation removed because the backend must be pre-created or managed separately.
+# If you want the least-privilege IAM policy JSON to attach manually, I can provide it.
 

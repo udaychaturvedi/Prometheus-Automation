@@ -30,7 +30,7 @@ variable "jenkins_role_name" {
 
 variable "prometheus_instance_type" {
   type    = string
-  default = "t3.medium"
+  default = "t3.micro"
 }
 
 variable "prometheus_asg_desired_capacity" {
