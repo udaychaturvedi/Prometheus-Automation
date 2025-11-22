@@ -1,119 +1,76 @@
 pipeline {
-    agent any
-
-    environment {
-        TF_DIR = "terraform"
-        BASTION_IP = "3.110.65.250"   // your Mumbai bastion IP
+  agent any
+  environment {
+    TF_WORKING_DIR = 'terraform'
+  }
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
     }
-
-    stages {
-
-        stage('Clean Workspace') {
-            steps { deleteDir() }
+    stage('Terraform Init') {
+      steps {
+        dir("${env.TF_WORKING_DIR}") {
+          sh 'terraform init -reconfigure'
         }
-
-        stage('Checkout Repo') {
-            steps {
-                git(
-                    url: 'https://github.com/udaychaturvedi/Prometheus-Automation.git',
-                    branch: 'main',
-                    credentialsId: 'github-creds'
-                )
-            }
-        }
-
-        stage('Terraform Init') {
-            steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']]) {
-                    dir(env.TF_DIR) {
-                        sh 'terraform init -reconfigure -lock=false'
-                    }
-                }
-            }
-        }
-
-        stage('Select Action') {
-            steps {
-                script {
-                    env.ACTION = input(
-                        message: "Choose action",
-                        parameters: [choice(name: 'ACTION', choices: ['apply', 'destroy'], description: '')]
-                    )
-                }
-            }
-        }
-
-        stage('Terraform Apply/Destroy') {
-            steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']]) {
-                    dir(env.TF_DIR) {
-                        script {
-                            sh "terraform ${env.ACTION} -auto-approve -lock=false"
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('Fetch Private IP') {
-            when { expression { env.ACTION == 'apply' } }
-            steps {
-                dir(env.TF_DIR) {
-                    script {
-                        env.PROM_PRIVATE_IP = sh(script: "terraform output -raw prometheus_private_ip", returnStdout: true).trim()
-                        echo "Prometheus Private IP: ${env.PROM_PRIVATE_IP}"
-                    }
-                }
-            }
-        }
-
-        stage('Run Ansible (via bastion)') {
-            when { expression { env.ACTION == 'apply' } }
-            steps {
-                withCredentials([file(credentialsId: 'new-uday-key', variable: 'SSH_KEY')]) {
-                    dir('ansible') {
-                        sh '''
-                        set -e
-
-                        cat > inventory.ini <<EOF
-[prometheus]
-${PROM_PRIVATE_IP} ansible_user=ubuntu ansible_ssh_private_key_file=${SSH_KEY}
-
-[all:vars]
-ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ProxyCommand="ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no -W %h:%p ubuntu@${BASTION_IP}"'
-EOF
-
-                        ansible-playbook -i inventory.ini site.yml
-                        '''
-                    }
-                }
-            }
-        }
-
-        stage('Show Access Links') {
-            when { expression { env.ACTION == 'apply' } }
-            steps {
-                echo """
-=====================
-Prometheus:   http://localhost:9090
-Grafana:      http://localhost:3000
-Alertmanager: http://localhost:9093
-
-Run SSH Tunnel:
-ssh -i ~/new-uday-key.pem \\
-  -L 9090:${PROM_PRIVATE_IP}:9090 \\
-  -L 3000:${PROM_PRIVATE_IP}:3000 \\
-  -L 9093:${PROM_PRIVATE_IP}:9093 \\
-  ubuntu@${BASTION_IP}
-=====================
-                """
-            }
-        }
+      }
     }
-
-    post {
-        success { echo "Pipeline completed successfully!" }
-        failure { echo "Pipeline failed — check logs." }
+    stage('Terraform Plan') {
+      steps {
+        dir("${env.TF_WORKING_DIR}") {
+          sh 'terraform plan -out plan.tfplan'
+          sh 'terraform show -json plan.tfplan > plan.json || true'
+        }
+      }
     }
+    stage('Manual Approval') {
+      steps {
+        input message: "Approve terraform apply?", ok: "Apply"
+      }
+    }
+    stage('Terraform Apply') {
+      steps {
+        dir("${env.TF_WORKING_DIR}") {
+          sh 'terraform apply -auto-approve "plan.tfplan"'
+        }
+      }
+    }
+    stage('Fetch Outputs and Run Ansible') {
+      steps {
+        dir("${env.TF_WORKING_DIR}") {
+          sh 'terraform output -json > ../tf_outputs.json'
+        }
+        sh '''
+          python3 - <<'PY'
+import json,sys
+o=json.load(open('tf_outputs.json'))
+bip=o['bastion_public_ip']['value']
+pubdns=o['bastion_public_dns']['value']
+print("Bastion:",bip,pubdns)
+# create ansible inventory
+with open('ansible/inventory/hosts','w') as f:
+    f.write("[bastion]\\n{} ansible_user=ubuntu\\n\\n".format(bip))
+# For Prometheus ASG, we will use private IPs fetched by AWS CLI in real runs (Jenkins role has permissions)
+# Jenkins will ssh to bastion and run ansible-playbooks via ProxyCommand
+PY
+'''
+        // Run Ansible via bastion (assumes key is present on Jenkins or uses instance role)
+        sh '''
+          # Example: run nginx on bastion then run prometheus playbook via bastion
+          ssh -o StrictHostKeyChecking=no ubuntu@$(jq -r .bastion_public_ip.value tf_outputs.json) 'sudo systemctl status nginx || sudo systemctl start nginx'
+          # copy ansible code to bastion and run from there or use ansible->ssh proxy
+          # For brevity we run playbooks locally with --private-key pointing to pem (if available)
+          ansible-playbook -i ansible/inventory/hosts ansible/playbooks/nginx.yml --ssh-common-args='-o ProxyCommand="ssh -W %h:%p -q ubuntu@'$(jq -r .bastion_public_ip.value tf_outputs.json)'"'
+          ansible-playbook -i ansible/inventory/hosts ansible/playbooks/prometheus.yml --ssh-common-args='-o ProxyCommand="ssh -W %h:%p -q ubuntu@'$(jq -r .bastion_public_ip.value tf_outputs.json)'"'
+        '''
+      }
+    }
+  }
+  post {
+    always {
+      echo "Pipeline finished. Check Jenkins console for outputs."
+    }
+  }
 }
 
