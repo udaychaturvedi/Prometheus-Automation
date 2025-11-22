@@ -42,9 +42,8 @@ resource "aws_autoscaling_group" "prometheus_asg" {
   max_size           = 3
   min_size           = 1
 
-  vpc_zone_identifier = local.create_vpc ?
-    [aws_subnet.public[0].id] :
-    var.public_subnet_ids
+  vpc_zone_identifier = local.create_vpc ? [aws_subnet.public[0].id] : var.public_subnet_ids
+
 
   launch_template {
     id      = aws_launch_template.prometheus_lt.id
