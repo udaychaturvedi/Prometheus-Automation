@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         TF_DIR = "terraform"
-        BASTION_IP = "13.201.63.0"
+        BASTION_IP = "3.110.65.250"   // your Mumbai bastion IP
     }
 
     stages {
@@ -24,9 +24,10 @@ pipeline {
 
         stage('Terraform Init') {
             steps {
-                dir(env.TF_DIR) {
-                    sh 'terraform init -reconfigure -lock=false'
-
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']]) {
+                    dir(env.TF_DIR) {
+                        sh 'terraform init -reconfigure -lock=false'
+                    }
                 }
             }
         }
@@ -36,9 +37,7 @@ pipeline {
                 script {
                     env.ACTION = input(
                         message: "Choose action",
-                        parameters: [
-                            choice(name: 'ACTION', choices: ['apply', 'destroy'], description: '')
-                        ]
+                        parameters: [choice(name: 'ACTION', choices: ['apply', 'destroy'], description: '')]
                     )
                 }
             }
@@ -46,14 +45,10 @@ pipeline {
 
         stage('Terraform Apply/Destroy') {
             steps {
-                dir(env.TF_DIR) {
-                    script {
-                        if (env.ACTION == 'apply') {
-                            sh 'terraform apply -auto-approve -lock=false'
-
-                        } else {
-                            sh 'terraform destroy -auto-approve -lock=false'
-
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']]) {
+                    dir(env.TF_DIR) {
+                        script {
+                            sh "terraform ${env.ACTION} -auto-approve -lock=false"
                         }
                     }
                 }
@@ -79,7 +74,6 @@ pipeline {
                     dir('ansible') {
                         sh '''
                         set -e
-                        echo "Creating dynamic inventory..."
 
                         cat > inventory.ini <<EOF
 [prometheus]
@@ -99,20 +93,20 @@ EOF
         stage('Show Access Links') {
             when { expression { env.ACTION == 'apply' } }
             steps {
-                echo "============================================"
-                echo "Prometheus   → http://localhost:9090"
-                echo "Grafana      → http://localhost:3000"
-                echo "Alertmanager → http://localhost:9093"
-                echo ""
-                echo "Run SSH tunnel:"
                 echo """
+=====================
+Prometheus:   http://localhost:9090
+Grafana:      http://localhost:3000
+Alertmanager: http://localhost:9093
+
+Run SSH Tunnel:
 ssh -i ~/new-uday-key.pem \\
   -L 9090:${PROM_PRIVATE_IP}:9090 \\
   -L 3000:${PROM_PRIVATE_IP}:3000 \\
   -L 9093:${PROM_PRIVATE_IP}:9093 \\
   ubuntu@${BASTION_IP}
+=====================
                 """
-                echo "============================================"
             }
         }
     }
