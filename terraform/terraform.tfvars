@@ -6,5 +6,4 @@ prometheus_instance_type   = "t3.medium"
 prometheus_asg_desired_capacity = 1
 domain_name                = ""  # set if you have a domain
 grafana_separate           = false
-prometheus_instance_type   = "t2.micro"
 
