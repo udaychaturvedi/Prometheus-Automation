@@ -25,7 +25,8 @@ pipeline {
         stage('Terraform Init') {
             steps {
                 dir(env.TF_DIR) {
-                    sh 'terraform init -reconfigure'
+                    sh 'terraform init -reconfigure -lock=false'
+
                 }
             }
         }
@@ -49,8 +50,10 @@ pipeline {
                     script {
                         if (env.ACTION == 'apply') {
                             sh 'terraform apply -auto-approve -lock=false'
+
                         } else {
                             sh 'terraform destroy -auto-approve -lock=false'
+
                         }
                     }
                 }
@@ -119,3 +122,4 @@ ssh -i ~/new-uday-key.pem \\
         failure { echo "Pipeline failed — check logs." }
     }
 }
+
